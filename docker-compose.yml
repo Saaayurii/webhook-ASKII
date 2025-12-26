@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vk-webhook
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - VK_TOKEN=${VK_TOKEN}
+      - VK_CONFIRMATION=${VK_CONFIRMATION}
+      - VK_GROUP_ID=${VK_GROUP_ID}
+      - VK_API_VERSION=${VK_API_VERSION:-5.199}
+      - API_BASE_URL=${API_BASE_URL}
+      - API_TOKEN=${API_TOKEN}
+      - ACCOUNT_ID=${ACCOUNT_ID}
+      - INBOX_ID=${INBOX_ID}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/vk/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

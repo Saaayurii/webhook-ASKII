@@ -14,6 +14,8 @@ Webhook-сервер для интеграции VK Messenger с платфор�
 - Node.js + NestJS
 - TypeScript
 - VK Callback API
+- Swagger (OpenAPI)
+- Docker
 
 ## Установка
 
@@ -62,6 +64,39 @@ npm run start:prod
 | POST | `/vk/test` | Тест отправки сообщения |
 | POST | `/vk/test-api` | Тест подключения к API |
 
+## Swagger документация
+
+После запуска сервера Swagger UI доступен по адресу:
+```
+http://localhost:3000/api/docs
+```
+
+## Docker
+
+### Запуск с docker-compose
+
+```bash
+# Создать .env файл
+cp .env.example .env
+# Заполнить переменные
+
+# Запустить
+docker-compose up -d
+
+# Логи
+docker-compose logs -f
+
+# Остановить
+docker-compose down
+```
+
+### Сборка образа вручную
+
+```bash
+docker build -t vk-webhook .
+docker run -p 3000:3000 --env-file .env vk-webhook
+```
+
 ## Деплой на Render
 
 1. Создать Web Service на [render.com](https://render.com)
@@ -92,5 +127,7 @@ src/
     ├── vk.module.ts        # VK модуль
     ├── vk.controller.ts    # Обработка запросов
     ├── vk.service.ts       # Работа с VK API
-    └── api.service.ts      # Работа с СпросиИИ API
+    ├── api.service.ts      # Работа с СпросиИИ API
+    └── dto/
+        └── vk-callback.dto.ts  # DTO для Swagger
 ```

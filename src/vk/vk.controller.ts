@@ -1,8 +1,17 @@
 import { Controller, Post, Get, Body, Query, Logger, HttpCode } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { VkService } from './vk.service';
 import { ApiService } from './api.service';
+import {
+  VkCallbackDto,
+  TestMessageDto,
+  StatusResponseDto,
+  HealthResponseDto,
+  TestResponseDto,
+} from './dto/vk-callback.dto';
 
+@ApiTags('vk')
 @Controller('vk')
 export class VkController {
   private readonly logger = new Logger(VkController.name);
@@ -18,13 +27,13 @@ export class VkController {
     this.vkGroupId = parseInt(this.configService.get<string>('VK_GROUP_ID', '0'));
   }
 
-  /**
-   * Эндпоинт для Callback API VK
-   */
   @Post('callback')
   @HttpCode(200)
+  @ApiOperation({ summary: 'VK Callback API', description: 'Эндпоинт для приёма событий от VK Callback API' })
+  @ApiBody({ type: VkCallbackDto })
+  @ApiResponse({ status: 200, description: 'Возвращает "ok" или код подтверждения' })
   async handleCallback(
-    @Body() body: any,
+    @Body() body: VkCallbackDto,
     @Query() query: any,
   ): Promise<string> {
     this.logger.debug('VK callback received');
@@ -38,7 +47,7 @@ export class VkController {
     }
 
     // Проверка group_id
-    if (body.group_id && parseInt(body.group_id) !== this.vkGroupId) {
+    if (body.group_id && body.group_id !== this.vkGroupId) {
       this.logger.warn(`Invalid group_id: ${body.group_id}, expected: ${this.vkGroupId}`);
       return 'ok';
     }
@@ -92,11 +101,11 @@ export class VkController {
     }
   }
 
-  /**
-   * Тестовый эндпоинт для ручной проверки
-   */
   @Post('test')
-  async testIntegration(@Body() testData: any): Promise<any> {
+  @ApiOperation({ summary: 'Тест интеграции', description: 'Тестовая отправка сообщения через API' })
+  @ApiBody({ type: TestMessageDto })
+  @ApiResponse({ status: 200, type: TestResponseDto })
+  async testIntegration(@Body() testData: TestMessageDto): Promise<TestResponseDto> {
     try {
       const vkUserId = testData.user_id || 506175275;
       const messageText = testData.message || 'Test message from VK integration';
@@ -122,11 +131,10 @@ export class VkController {
     }
   }
 
-  /**
-   * Тестирование СпросиИИ API соединения
-   */
   @Post('test-api')
-  async testApiConnection(): Promise<any> {
+  @ApiOperation({ summary: 'Тест API подключения', description: 'Проверка соединения с СпросиИИ API' })
+  @ApiResponse({ status: 200, type: TestResponseDto })
+  async testApiConnection(): Promise<TestResponseDto> {
     try {
       const connected = await this.apiService.testConnection();
 
@@ -144,11 +152,10 @@ export class VkController {
     }
   }
 
-  /**
-   * Статус сервера
-   */
   @Get('status')
-  async getStatus(): Promise<any> {
+  @ApiOperation({ summary: 'Статус сервера', description: 'Получение полного статуса сервера и подключений' })
+  @ApiResponse({ status: 200, type: StatusResponseDto })
+  async getStatus(): Promise<StatusResponseDto> {
     const apiTest = await this.apiService.testConnection();
 
     return {
@@ -178,7 +185,9 @@ export class VkController {
   }
 
   @Get('health')
-  healthCheck(): any {
+  @ApiOperation({ summary: 'Health check', description: 'Проверка работоспособности сервера' })
+  @ApiResponse({ status: 200, type: HealthResponseDto })
+  healthCheck(): HealthResponseDto {
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
