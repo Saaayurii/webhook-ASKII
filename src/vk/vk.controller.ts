@@ -82,7 +82,7 @@ export class VkController {
       const success = await this.apiService.processVkMessage(vkUserId, userInfo, messageText);
       
       if (success) {
-        this.logger.log(`Message from ${vkUserId} successfully sent to Chatwoot`);
+        this.logger.log(`Message from ${vkUserId} successfully sent to СпросиИИ`);
       } else {
         this.logger.error(`Failed to process message from ${vkUserId}`);
       }
@@ -108,7 +108,7 @@ export class VkController {
       
       return {
         status: success ? 'success' : 'error',
-        message: success ? 'Test message processed through Chatwoot API' : 'Failed to process test message',
+        message: success ? 'Test message processed through СпросиИИ API' : 'Failed to process test message',
         user_id: vkUserId,
         api_type: 'application',
         timestamp: new Date().toISOString(),
@@ -123,16 +123,16 @@ export class VkController {
   }
 
   /**
-   * Тестирование Chatwoot API соединения
+   * Тестирование СпросиИИ API соединения
    */
-  @Post('test-chatwoot')
-  async testChatwootConnection(): Promise<any> {
+  @Post('test-api')
+  async testApiConnection(): Promise<any> {
     try {
       const connected = await this.apiService.testConnection();
-      
+
       return {
         status: connected ? 'success' : 'error',
-        message: connected ? 'Chatwoot API connection is working' : 'Failed to connect to Chatwoot API',
+        message: connected ? 'СпросиИИ API connection is working' : 'Failed to connect to СпросиИИ API',
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
@@ -149,8 +149,8 @@ export class VkController {
    */
   @Get('status')
   async getStatus(): Promise<any> {
-    const chatwootTest = await this.apiService.testConnection();
-    
+    const apiTest = await this.apiService.testConnection();
+
     return {
       status: 'online',
       timestamp: new Date().toISOString(),
@@ -158,13 +158,11 @@ export class VkController {
         group_id: this.vkGroupId,
         confirmation_code_set: !!this.vkConfirmation,
       },
-      chatwoot: {
-        connected: chatwootTest,
+      api: {
+        connected: apiTest,
         base_url: this.configService.get('API_BASE_URL'),
         account_id: this.configService.get('ACCOUNT_ID'),
         inbox_id: this.configService.get('INBOX_ID'),
-        api_type: 'application',
-        auth_method: 'query_parameter',
       },
       server: {
         webhook_url: `${this.configService.get('WEBHOOK_URL', '')}/vk/callback`,
@@ -173,7 +171,7 @@ export class VkController {
       endpoints: {
         vk_callback: `${this.configService.get('WEBHOOK_URL', '')}/vk/callback`,
         test: `${this.configService.get('WEBHOOK_URL', '')}/vk/test`,
-        test_chatwoot: `${this.configService.get('WEBHOOK_URL', '')}/vk/test-chatwoot`,
+        test_api: `${this.configService.get('WEBHOOK_URL', '')}/vk/test-api`,
         status: `${this.configService.get('WEBHOOK_URL', '')}/vk/status`,
       }
     };
@@ -184,7 +182,7 @@ export class VkController {
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
-      service: 'vk-chatwoot-integration',
+      service: 'vk-sprosiii-integration',
     };
   }
 }

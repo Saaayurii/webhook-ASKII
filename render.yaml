@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: vk-sprosiii-webhook
+    runtime: node
+    region: frankfurt
+    plan: free
+
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/main.js
+
+    healthCheckPath: /vk/health
+
+    envVars:
+      # VK Configuration
+      - key: VK_TOKEN
+        sync: false
+      - key: VK_CONFIRMATION
+        sync: false
+      - key: VK_GROUP_ID
+        sync: false
+      - key: VK_API_VERSION
+        value: "5.199"
+
+      # API Configuration
+      - key: API_BASE_URL
+        sync: false
+      - key: API_TOKEN
+        sync: false
+      - key: ACCOUNT_ID
+        sync: false
+      - key: INBOX_ID
+        sync: false
+
+      # Server Configuration
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: WEBHOOK_URL
+        sync: false

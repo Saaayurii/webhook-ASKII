@@ -21,7 +21,7 @@ export class ApiService {
     this.accountId = this.configService.get<string>('ACCOUNT_ID', '1');
     this.inboxId = this.configService.get<string>('INBOX_ID', '4');
     
-    this.logger.log(`Chatwoot Application API initialized for account ${this.accountId}, inbox ${this.inboxId}`);
+    this.logger.log(`СпросиИИ API initialized for account ${this.accountId}, inbox ${this.inboxId}`);
     this.validateConfig();
   }
 
@@ -32,8 +32,7 @@ export class ApiService {
   }
 
   /**
-   * Формирует URL для Chatwoot API с добавлением токена в query-параметр
-   * Это обходит проблему Nginx с заголовками с подчёркиванием
+   * Формирует URL для СпросиИИ API с добавлением токена в query-параметр
    */
   private buildApiUrl(endpoint: string): string {
     const baseUrl = `${this.apiBaseUrl}/api/v1/accounts/${this.accountId}${endpoint}`;
@@ -42,7 +41,7 @@ export class ApiService {
   }
 
   /**
-   * Получает или создаёт контакт в Chatwoot
+   * Получает или создаёт контакт в СпросиИИ
    */
   async getOrCreateContact(vkUserId: number, userInfo: any): Promise<number | null> {
     const cacheKey = vkUserId;
@@ -133,7 +132,7 @@ export class ApiService {
   }
 
   /**
-   * Получает или создаёт беседу в Chatwoot
+   * Получает или создаёт беседу в СпросиИИ
    */
   async getOrCreateConversation(vkUserId: number, contactId: number): Promise<number | null> {
     try {
@@ -215,7 +214,7 @@ export class ApiService {
   }
 
   /**
-   * Отправляет сообщение в беседу Chatwoot
+   * Отправляет сообщение в беседу СпросиИИ
    */
   async sendMessage(conversationId: number, content: string): Promise<boolean> {
     try {
@@ -259,13 +258,13 @@ export class ApiService {
   }
 
   /**
-   * Тестирует подключение к Chatwoot API
+   * Тестирует подключение к СпросиИИ API
    */
   async testConnection(): Promise<boolean> {
     try {
       const testUrl = this.buildApiUrl('/inboxes');
-      
-      this.logger.log(`Testing Chatwoot API connection: ${testUrl.split('?')[0]}`);
+
+      this.logger.log(`Testing СпросиИИ API connection: ${testUrl.split('?')[0]}`);
       
       const response = await firstValueFrom(
         this.httpService.get(testUrl, {
@@ -275,14 +274,14 @@ export class ApiService {
       );
 
       if (response.status === 200) {
-        this.logger.log('Chatwoot API connection: SUCCESS');
+        this.logger.log('СпросиИИ API connection: SUCCESS');
         this.logger.log(`Available inboxes: ${response.data?.payload?.length || 0}`);
         return true;
       }
-      
+
       return false;
     } catch (error) {
-      this.logger.error('Chatwoot API connection: FAILED', {
+      this.logger.error('СпросиИИ API connection: FAILED', {
         status: error.response?.status,
         data: error.response?.data,
         message: error.message
