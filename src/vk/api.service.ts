@@ -7,241 +7,205 @@ import { firstValueFrom } from 'rxjs';
 export class ApiService {
   private readonly logger = new Logger(ApiService.name);
   private readonly apiBaseUrl: string;
-  private readonly apiToken: string;
-  private readonly accountId: string;
-  private readonly inboxId: string;
-  private contactMap = new Map<number, number>();
+  private readonly inboxIdentifier: string;
+  private contactCache = new Map<number, string>(); // vkUserId -> pubsub_token (source_id)
 
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
   ) {
     this.apiBaseUrl = this.configService.get<string>('API_BASE_URL');
-    this.apiToken = this.configService.get<string>('API_TOKEN');
-    this.accountId = this.configService.get<string>('ACCOUNT_ID', '1');
-    this.inboxId = this.configService.get<string>('INBOX_ID', '4');
-    
-    this.logger.log(`СпросиИИ API initialized for account ${this.accountId}, inbox ${this.inboxId}`);
+    this.inboxIdentifier = this.configService.get<string>('INBOX_IDENTIFIER');
+
+    this.logger.log(`СпросиИИ Client API initialized for inbox ${this.inboxIdentifier}`);
     this.validateConfig();
   }
 
   private validateConfig() {
-    if (!this.apiToken) {
-      this.logger.warn('API_TOKEN is not configured!');
+    if (!this.inboxIdentifier) {
+      this.logger.warn('INBOX_IDENTIFIER is not configured!');
+    }
+    if (!this.apiBaseUrl) {
+      this.logger.warn('API_BASE_URL is not configured!');
     }
   }
 
   /**
-   * Формирует URL для СпросиИИ API с добавлением токена в query-параметр
+   * Базовый URL для Client API
    */
-  private buildApiUrl(endpoint: string): string {
-    const baseUrl = `${this.apiBaseUrl}/api/v1/accounts/${this.accountId}${endpoint}`;
-    // Добавляем токен как query-параметр для обхода проблем с заголовками
-    return `${baseUrl}?api_access_token=${encodeURIComponent(this.apiToken)}`;
+  private get clientApiUrl(): string {
+    return `${this.apiBaseUrl}/public/api/v1/inboxes/${this.inboxIdentifier}`;
   }
 
   /**
-   * Получает или создаёт контакт в СпросиИИ
+   * Создаёт контакт в СпросиИИ через Client API
    */
-  async getOrCreateContact(vkUserId: number, userInfo: any): Promise<number | null> {
-    const cacheKey = vkUserId;
-    
-    // Проверяем кэш
-    if (this.contactMap.has(cacheKey)) {
-      return this.contactMap.get(cacheKey);
-    }
-
+  async createContact(vkUserId: number, userInfo: any): Promise<{ sourceId: string; pubsubToken: string } | null> {
     try {
       const identifier = `vk_${vkUserId}`;
-      
-      // 1. Ищем существующий контакт
-      const searchUrl = this.buildApiUrl('/contacts/search');
-      const searchParams = new URLSearchParams({
-        q: identifier
-      }).toString();
-      
-      const fullSearchUrl = `${searchUrl}&${searchParams}`;
-      
-      this.logger.debug(`Searching contact: ${identifier}`);
-      
-      const searchResponse = await firstValueFrom(
-        this.httpService.get(fullSearchUrl, {
-          headers: { 'Content-Type': 'application/json' },
-          timeout: 5000,
-        })
-      );
 
-      if (searchResponse.data?.payload?.length > 0) {
-        const contactId = searchResponse.data.payload[0].id;
-        this.contactMap.set(cacheKey, contactId);
-        this.logger.log(`Found contact: ${contactId} for VK user ${vkUserId}`);
-        return contactId;
+      // Проверяем кэш
+      if (this.contactCache.has(vkUserId)) {
+        const sourceId = this.contactCache.get(vkUserId);
+        this.logger.debug(`Contact found in cache: ${sourceId}`);
+        return { sourceId, pubsubToken: sourceId };
       }
 
-      // 2. Создаём новый контакт
       this.logger.log(`Creating contact for VK user ${vkUserId}`);
-      
-      const createUrl = this.buildApiUrl('/contacts');
+
+      const url = `${this.clientApiUrl}/contacts`;
       const contactData = {
-        inbox_id: parseInt(this.inboxId),
-        name: `${userInfo.first_name} ${userInfo.last_name}`.trim(),
-        email: `vk_${vkUserId}@vk.com`,
-        phone_number: null,
         identifier: identifier,
+        name: `${userInfo.first_name} ${userInfo.last_name}`.trim(),
+        email: `vk_${vkUserId}@vk.messenger`,
         custom_attributes: {
           vk_id: vkUserId.toString(),
           vk_profile: `https://vk.com/id${vkUserId}`,
-          source: 'vk_messenger',
-          created_at: new Date().toISOString()
+          source: 'vk_messenger'
         }
       };
 
-      const createResponse = await firstValueFrom(
-        this.httpService.post(
-          createUrl,
-          contactData,
-          { 
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 5000
-          }
-        )
+      const response = await firstValueFrom(
+        this.httpService.post(url, contactData, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000,
+        })
       );
 
-      const contactId = createResponse.data?.id;
-      
-      if (!contactId) {
-        throw new Error('No contact ID in response');
+      const sourceId = response.data?.source_id;
+      const pubsubToken = response.data?.pubsub_token;
+
+      if (!sourceId) {
+        throw new Error('No source_id in response');
       }
 
-      this.contactMap.set(cacheKey, contactId);
-      this.logger.log(`Created contact: ${contactId} for VK user ${vkUserId}`);
-      return contactId;
+      this.contactCache.set(vkUserId, sourceId);
+      this.logger.log(`Created contact: source_id=${sourceId} for VK user ${vkUserId}`);
+
+      return { sourceId, pubsubToken };
 
     } catch (error) {
-      this.logger.error(`Failed to get/create contact for ${vkUserId}:`, {
+      // Если контакт уже существует, пробуем получить его
+      if (error.response?.status === 422 || error.response?.data?.message?.includes('already')) {
+        this.logger.log(`Contact already exists for VK user ${vkUserId}, fetching...`);
+        return this.getExistingContact(vkUserId);
+      }
+
+      this.logger.error(`Failed to create contact for ${vkUserId}:`, {
         status: error.response?.status,
         data: error.response?.data,
         message: error.message
       });
-      
-      // Fallback: генерируем временный ID для продолжения работы
-      const fallbackId = Math.floor(Math.random() * 1000000);
-      this.contactMap.set(cacheKey, fallbackId);
-      return fallbackId;
+      return null;
     }
   }
 
   /**
-   * Получает или создаёт беседу в СпросиИИ
+   * Получает существующий контакт
    */
-  async getOrCreateConversation(vkUserId: number, contactId: number): Promise<number | null> {
+  private async getExistingContact(vkUserId: number): Promise<{ sourceId: string; pubsubToken: string } | null> {
     try {
-      // 1. Ищем существующую беседу
-      const searchUrl = this.buildApiUrl('/conversations');
-      const searchParams = new URLSearchParams({
-        inbox_id: this.inboxId,
-        contact_id: contactId.toString(),
-        status: 'open'
-      }).toString();
-      
-      const fullSearchUrl = `${searchUrl}&${searchParams}`;
-      
-      this.logger.debug(`Searching conversation for contact ${contactId}`);
-      
-      const searchResponse = await firstValueFrom(
-        this.httpService.get(fullSearchUrl, {
+      const identifier = `vk_${vkUserId}`;
+      const url = `${this.clientApiUrl}/contacts/${identifier}`;
+
+      const response = await firstValueFrom(
+        this.httpService.get(url, {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 5000,
+          timeout: 10000,
         })
       );
 
-      if (searchResponse.data?.payload?.length > 0) {
-        const conversation = searchResponse.data.payload.find(
-          (conv: any) => conv.contact_id === contactId && conv.status === 'open'
-        );
-        
-        if (conversation) {
-          this.logger.log(`Found conversation: ${conversation.id} for contact ${contactId}`);
-          return conversation.id;
-        }
+      const sourceId = response.data?.source_id || response.data?.identifier;
+      if (sourceId) {
+        this.contactCache.set(vkUserId, sourceId);
+        return { sourceId, pubsubToken: response.data?.pubsub_token || sourceId };
       }
+      return null;
+    } catch (error) {
+      this.logger.error(`Failed to get existing contact:`, error.message);
+      return null;
+    }
+  }
 
-      // 2. Создаём новую беседу
-      this.logger.log(`Creating conversation for contact ${contactId}`);
-      
-      const createUrl = this.buildApiUrl('/conversations');
-      const conversationData = {
-        source_id: `vk_${vkUserId}_${Date.now()}`,
-        inbox_id: parseInt(this.inboxId),
-        contact_id: contactId,
-        status: 'open',
-        additional_attributes: {
-          vk_user_id: vkUserId,
-          source: 'vk_messenger',
-          timestamp: new Date().toISOString()
-        }
-      };
+  /**
+   * Создаёт беседу в СпросиИИ
+   */
+  async createConversation(sourceId: string): Promise<number | null> {
+    try {
+      const url = `${this.clientApiUrl}/contacts/${sourceId}/conversations`;
 
-      const createResponse = await firstValueFrom(
-        this.httpService.post(
-          createUrl,
-          conversationData,
-          { 
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 5000
-          }
-        )
+      this.logger.debug(`Creating conversation for contact ${sourceId}`);
+
+      const response = await firstValueFrom(
+        this.httpService.post(url, {}, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000,
+        })
       );
 
-      const conversationId = createResponse.data?.id;
-      
+      const conversationId = response.data?.id;
+
       if (!conversationId) {
         throw new Error('No conversation ID in response');
       }
 
-      this.logger.log(`Created conversation: ${conversationId} for contact ${contactId}`);
+      this.logger.log(`Created conversation: ${conversationId}`);
       return conversationId;
 
     } catch (error) {
-      this.logger.error(`Failed to get/create conversation:`, {
+      this.logger.error(`Failed to create conversation:`, {
         status: error.response?.status,
         data: error.response?.data,
         message: error.message
       });
-      
       return null;
+    }
+  }
+
+  /**
+   * Получает список бесед контакта
+   */
+  async getConversations(sourceId: string): Promise<any[]> {
+    try {
+      const url = `${this.clientApiUrl}/contacts/${sourceId}/conversations`;
+
+      const response = await firstValueFrom(
+        this.httpService.get(url, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000,
+        })
+      );
+
+      return response.data || [];
+    } catch (error) {
+      this.logger.error(`Failed to get conversations:`, error.message);
+      return [];
     }
   }
 
   /**
    * Отправляет сообщение в беседу СпросиИИ
    */
-  async sendMessage(conversationId: number, content: string): Promise<boolean> {
+  async sendMessage(sourceId: string, conversationId: number, content: string): Promise<boolean> {
     try {
       if (!content || content.trim().length === 0) {
         this.logger.warn('Empty message, skipping');
         return false;
       }
 
-      const url = this.buildApiUrl(`/conversations/${conversationId}/messages`);
-      
+      const url = `${this.clientApiUrl}/contacts/${sourceId}/conversations/${conversationId}/messages`;
+
       const messageData = {
-        content: content.trim(),
-        message_type: 'incoming',
-        private: false
+        content: content.trim()
       };
 
       this.logger.debug(`Sending message to conversation ${conversationId}`);
-      
+
       await firstValueFrom(
-        this.httpService.post(
-          url,
-          messageData,
-          { 
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 5000
-          }
-        )
+        this.httpService.post(url, messageData, {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 10000,
+        })
       );
 
       this.logger.log(`Message sent to conversation ${conversationId}`);
@@ -258,32 +222,30 @@ export class ApiService {
   }
 
   /**
-   * Тестирует подключение к СпросиИИ API
+   * Тестирует подключение к СпросиИИ Client API
    */
   async testConnection(): Promise<boolean> {
     try {
-      const testUrl = this.buildApiUrl('/inboxes');
+      const url = this.clientApiUrl;
 
-      this.logger.log(`Testing СпросиИИ API connection: ${testUrl.split('?')[0]}`);
-      
+      this.logger.log(`Testing СпросиИИ Client API connection: ${url}`);
+
       const response = await firstValueFrom(
-        this.httpService.get(testUrl, {
+        this.httpService.get(url, {
           headers: { 'Content-Type': 'application/json' },
-          timeout: 5000,
+          timeout: 10000,
         })
       );
 
-      if (response.status === 200) {
-        this.logger.log('СпросиИИ API connection: SUCCESS');
-        this.logger.log(`Available inboxes: ${response.data?.payload?.length || 0}`);
+      if (response.status === 200 && response.data?.identifier) {
+        this.logger.log(`СпросиИИ Client API connection: SUCCESS (inbox: ${response.data.name})`);
         return true;
       }
 
       return false;
     } catch (error) {
-      this.logger.error('СпросиИИ API connection: FAILED', {
+      this.logger.error('СпросиИИ Client API connection: FAILED', {
         status: error.response?.status,
-        data: error.response?.data,
         message: error.message
       });
       return false;
@@ -295,25 +257,36 @@ export class ApiService {
    */
   async processVkMessage(vkUserId: number, userInfo: any, messageText: string): Promise<boolean> {
     try {
-      // 1. Получаем/создаём контакт
-      const contactId = await this.getOrCreateContact(vkUserId, userInfo);
-      
-      if (!contactId) {
-        this.logger.error(`Failed to get/create contact for ${vkUserId}`);
+      // 1. Создаём/получаем контакт
+      const contact = await this.createContact(vkUserId, userInfo);
+
+      if (!contact) {
+        this.logger.error(`Failed to create/get contact for ${vkUserId}`);
         return false;
       }
-      
-      // 2. Получаем/создаём беседу
-      const conversationId = await this.getOrCreateConversation(vkUserId, contactId);
-      
+
+      // 2. Получаем существующие беседы или создаём новую
+      let conversationId: number | null = null;
+
+      const conversations = await this.getConversations(contact.sourceId);
+      if (conversations.length > 0) {
+        // Берём последнюю открытую беседу
+        const openConv = conversations.find((c: any) => c.status === 'open') || conversations[0];
+        conversationId = openConv.id;
+        this.logger.log(`Using existing conversation: ${conversationId}`);
+      } else {
+        // Создаём новую беседу
+        conversationId = await this.createConversation(contact.sourceId);
+      }
+
       if (!conversationId) {
-        this.logger.error(`Failed to get/create conversation for contact ${contactId}`);
+        this.logger.error(`Failed to get/create conversation for contact ${contact.sourceId}`);
         return false;
       }
-      
+
       // 3. Отправляем сообщение
-      const success = await this.sendMessage(conversationId, messageText);
-      
+      const success = await this.sendMessage(contact.sourceId, conversationId, messageText);
+
       return success;
     } catch (error) {
       this.logger.error(`Failed to process VK message:`, error.message);

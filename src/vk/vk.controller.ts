@@ -157,6 +157,7 @@ export class VkController {
   @ApiResponse({ status: 200, type: StatusResponseDto })
   async getStatus(): Promise<StatusResponseDto> {
     const apiTest = await this.apiService.testConnection();
+    const webhookUrl = this.configService.get('WEBHOOK_URL', '');
 
     return {
       status: 'online',
@@ -168,18 +169,17 @@ export class VkController {
       api: {
         connected: apiTest,
         base_url: this.configService.get('API_BASE_URL'),
-        account_id: this.configService.get('ACCOUNT_ID'),
-        inbox_id: this.configService.get('INBOX_ID'),
+        inbox_identifier: this.configService.get('INBOX_IDENTIFIER'),
       },
       server: {
-        webhook_url: `${this.configService.get('WEBHOOK_URL', '')}/vk/callback`,
+        webhook_url: `${webhookUrl}/vk/callback`,
         environment: this.configService.get('NODE_ENV'),
       },
       endpoints: {
-        vk_callback: `${this.configService.get('WEBHOOK_URL', '')}/vk/callback`,
-        test: `${this.configService.get('WEBHOOK_URL', '')}/vk/test`,
-        test_api: `${this.configService.get('WEBHOOK_URL', '')}/vk/test-api`,
-        status: `${this.configService.get('WEBHOOK_URL', '')}/vk/status`,
+        vk_callback: `${webhookUrl}/vk/callback`,
+        test: `${webhookUrl}/vk/test`,
+        test_api: `${webhookUrl}/vk/test-api`,
+        status: `${webhookUrl}/vk/status`,
       }
     };
   }

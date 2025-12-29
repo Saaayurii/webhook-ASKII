@@ -39,8 +39,7 @@ export class StatusResponseDto {
   api: {
     connected: boolean;
     base_url: string;
-    account_id: string;
-    inbox_id: string;
+    inbox_identifier: string;
   };
 
   @ApiProperty()
